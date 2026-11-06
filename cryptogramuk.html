@@ -22,8 +22,8 @@
     <h2>Cryptogram UK</h2>
 
     <div class="form-group">
-        <label>Add Input (Format: Key Value, e.g. "L 10"):</label>
-        <input type="text" id="tallyInput" placeholder="L 10">
+        <label>Add Input (Format: Name Amount, e.g. "Alice 10"):</label>
+        <input type="text" id="tallyInput" placeholder="Alice 10">
     </div>
 
     <button onclick="addAndSync()">Add & Update GitHub</button>
@@ -35,7 +35,7 @@
     <pre id="tallyDisplay">{}</pre>
 
     <script>
-        // --- HIDDEN SECURE CONFIGURATION ---
+        // --- SECURE CONFIGURATION ---
         const CONFIG = {
             token: "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",
             repo: "mediaolit-hue/cryptogram",
@@ -107,21 +107,21 @@
             const input = document.getElementById('tallyInput').value.trim();
 
             if (!input) {
-                alert("Please enter an entry like 'L 10'.");
+                alert("Please enter an entry like 'Alice 10'.");
                 return;
             }
 
-            // Parse input: "L 10" -> Key: L, Value: 10
+            // Parse input: "Alice 10" -> Key: Alice, Value: 10
             const parts = input.split(/\s+/);
             const key = parts[0];
             const val = parseFloat(parts[1]);
 
             if (!key || isNaN(val)) {
-                alert("Invalid format. Use format: KEY VALUE (e.g. L 10)");
+                alert("Invalid format. Use format: NAME AMOUNT (e.g. Alice 10)");
                 return;
             }
 
-            // 1. Update running local tally
+            // 1. Update running local tally (accumulates if name already exists)
             localTally[key] = (localTally[key] || 0) + val;
             document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
 
