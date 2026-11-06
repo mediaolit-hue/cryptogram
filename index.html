@@ -13,38 +13,56 @@
         input, button { width: 100%; padding: 10px; box-sizing: border-box; font-size: 1rem; border: 1px solid #ccc; border-radius: 4px; }
         button { background-color: #0056b3; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
         button:hover { background-color: #004085; }
+        .btn-green { background-color: #28a745; }
+        .btn-green:hover { background-color: #218838; }
+        .btn-dark { background-color: #333; }
+        .btn-dark:hover { background-color: #111; }
         pre { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; }
         .status { margin-top: 10px; font-weight: bold; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
 
     <h2>Cryptogram UK</h2>
 
-    <div class="form-group">
-        <label>Add Input (Format: Name Amount, e.g. "Alice 10"):</label>
-        <input type="text" id="tallyInput" placeholder="Alice 10">
+    <!-- STEP 1: PASSWORD PROMPT (Shown first) -->
+    <div id="authSection">
+        <div class="form-group">
+            <label>Enter Passphrase to Unlock:</label>
+            <input type="password" id="userPassphrase" placeholder="Passphrase">
+        </div>
+        <button onclick="unlockApp()">Unlock App</button>
+        <div class="status" id="authStatus" style="color: red; margin-top: 10px;"></div>
     </div>
 
-    <button onclick="addAndSync()">Add & Update GitHub</button>
-    <button onclick="fetchAndDecrypt()" style="background-color: #333;">Fetch & Decrypt</button>
+    <!-- MAIN APP INTERFACE (Completely hidden until unlocked) -->
+    <div id="appSection" class="hidden">
+        <div class="form-group">
+            <label>Add Entry (Format: Name Amount):</label>
+            <input type="text" id="tallyInput" placeholder="Alice 10">
+        </div>
 
-    <div class="status" id="statusText"></div>
+        <button onclick="addLocalEntry()">1. Add to Local List</button>
+        <button class="btn-green" onclick="saveToGitHub()">2. Save to GitHub</button>
+        <button class="btn-dark" onclick="fetchAndReveal()">Fetch & Reveal Database</button>
 
-    <h3>Current Tally (Decrypted):</h3>
-    <pre id="tallyDisplay">{}</pre>
+        <div class="status" id="statusText">Unlocked successfully.</div>
+
+        <h3>Current Tally:</h3>
+        <pre id="tallyDisplay">{}</pre>
+    </div>
 
     <script>
-        // --- SECURE CONFIGURATION ---
         const CONFIG = {
             token: "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",
-            repo: "mediaolit-hue/cryptogram",
-            passphrase: "blackbird"
+            repo: "mediaolit-hue/cryptogram"
         };
 
         const FILE_PATH = "tally_data.enc";
         let localTally = {};
-        let currentSha = ""; // Required by GitHub API for updating existing files
+        let currentSha = "";
+        let activePassphrase = "";
 
         function logStatus(msg) {
             document.getElementById('statusText').innerText = msg;
@@ -66,52 +84,31 @@
             }
         }
 
-        // --- GITHUB API OPERATIONS ---
-        async function fetchAndDecrypt() {
-            logStatus("Fetching from GitHub...");
-            const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
-
-            try {
-                const response = await fetch(url, {
-                    headers: { "Authorization": `token ${CONFIG.token}` }
-                });
-
-                if (response.status === 404) {
-                    logStatus("File not found on GitHub. Starting new database.");
-                    localTally = {};
-                    currentSha = "";
-                    document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
-                    return;
-                }
-
-                const fileData = await response.json();
-                currentSha = fileData.sha;
-                
-                // Decode base64 file contents from GitHub
-                const encryptedContent = atob(fileData.content);
-                const decrypted = decryptData(encryptedContent, CONFIG.passphrase);
-
-                if (decrypted) {
-                    localTally = decrypted;
-                    document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
-                    logStatus("Successfully decrypted data.");
-                } else {
-                    logStatus("Failed to decrypt! Incorrect passphrase.");
-                }
-            } catch (err) {
-                logStatus("API Error: " + err.message);
+        // --- STEP 1: UNLOCK APP ---
+        function unlockApp() {
+            const pass = document.getElementById('userPassphrase').value.trim();
+            
+            if (pass !== "blackbird") {
+                document.getElementById('authStatus').innerText = "Incorrect passphrase! Access denied.";
+                return;
             }
+
+            // Store the passphrase securely in memory for session use
+            activePassphrase = pass;
+
+            // Hide password prompt and reveal the app interface
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('appSection').classList.remove('hidden');
         }
 
-        async function addAndSync() {
+        // --- STEP 2: ADD LOCAL INPUT ---
+        function addLocalEntry() {
             const input = document.getElementById('tallyInput').value.trim();
-
             if (!input) {
                 alert("Please enter an entry like 'Alice 10'.");
                 return;
             }
 
-            // Parse input: "Alice 10" -> Key: Alice, Value: 10
             const parts = input.split(/\s+/);
             const key = parts[0];
             const val = parseFloat(parts[1]);
@@ -121,18 +118,24 @@
                 return;
             }
 
-            // 1. Update running local tally (accumulates if name already exists)
             localTally[key] = (localTally[key] || 0) + val;
             document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
+            document.getElementById('tallyInput').value = '';
+            logStatus(`Added local entry for ${key}. Click "Save to GitHub" when finished.`);
+        }
 
-            // 2. Encrypt full updated database
-            const encryptedPayload = encryptData(localTally, CONFIG.passphrase);
+        // --- STEP 3: SAVE TO GITHUB ---
+        async function saveToGitHub() {
+            if (!activePassphrase) {
+                alert("App is locked.");
+                return;
+            }
+
+            logStatus("Encrypting and saving to GitHub...");
+            const encryptedPayload = encryptData(localTally, activePassphrase);
             const encodedContent = btoa(encryptedPayload);
 
-            // 3. Commit to GitHub API
-            logStatus("Syncing to GitHub...");
             const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
-            
             const bodyData = {
                 message: `Update tally: ${new Date().toISOString()}`,
                 content: encodedContent
@@ -154,14 +157,54 @@
                 if (res.ok) {
                     const result = await res.json();
                     currentSha = result.content.sha;
-                    logStatus("Successfully saved encrypted data to GitHub!");
-                    document.getElementById('tallyInput').value = '';
+                    logStatus("Successfully saved encrypted database to GitHub!");
                 } else {
                     const errRes = await res.json();
                     logStatus("Failed to save: " + errRes.message);
                 }
             } catch (err) {
                 logStatus("Network Error: " + err.message);
+            }
+        }
+
+        // --- STEP 4: FETCH & REVEAL ---
+        async function fetchAndReveal() {
+            if (!activePassphrase) {
+                alert("App is locked.");
+                return;
+            }
+
+            logStatus("Fetching encrypted database from GitHub...");
+            const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
+
+            try {
+                const response = await fetch(url, {
+                    headers: { "Authorization": `token ${CONFIG.token}` }
+                });
+
+                if (response.status === 404) {
+                    logStatus("No database file found on GitHub yet.");
+                    localTally = {};
+                    currentSha = "";
+                    document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
+                    return;
+                }
+
+                const fileData = await response.json();
+                currentSha = fileData.sha;
+                
+                const encryptedContent = atob(fileData.content);
+                const decrypted = decryptData(encryptedContent, activePassphrase);
+
+                if (decrypted) {
+                    localTally = decrypted;
+                    document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
+                    logStatus("Successfully decrypted and revealed database.");
+                } else {
+                    logStatus("Failed to decrypt! Incorrect passphrase.");
+                }
+            } catch (err) {
+                logStatus("API Error: " + err.message);
             }
         }
     </script>
