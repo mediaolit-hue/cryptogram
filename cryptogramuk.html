@@ -22,23 +22,6 @@
     <h2>Cryptogram UK</h2>
 
     <div class="form-group">
-        <label>GitHub Personal Access Token (PAT):</label>
-        <input type="password" id="ghToken" value="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">
-    </div>
-
-    <div class="form-group">
-        <label>Repository (username/repo):</label>
-        <input type="text" id="ghRepo" value="mediaolit-hue/cryptogram">
-    </div>
-
-    <div class="form-group">
-        <label>Encryption Passphrase:</label>
-        <input type="password" id="passphrase" value="blackbird">
-    </div>
-
-    <hr>
-
-    <div class="form-group">
         <label>Add Input (Format: Key Value, e.g. "L 10"):</label>
         <input type="text" id="tallyInput" placeholder="L 10">
     </div>
@@ -52,6 +35,13 @@
     <pre id="tallyDisplay">{}</pre>
 
     <script>
+        // --- HIDDEN SECURE CONFIGURATION ---
+        const CONFIG = {
+            token: "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",
+            repo: "mediaolit-hue/cryptogram",
+            passphrase: "blackbird"
+        };
+
         const FILE_PATH = "tally_data.enc";
         let localTally = {};
         let currentSha = ""; // Required by GitHub API for updating existing files
@@ -78,21 +68,12 @@
 
         // --- GITHUB API OPERATIONS ---
         async function fetchAndDecrypt() {
-            const token = document.getElementById('ghToken').value.trim();
-            const repo = document.getElementById('ghRepo').value.trim();
-            const pass = document.getElementById('passphrase').value.trim();
-
-            if (!token || !repo || !pass) {
-                alert("Please provide Token, Repo, and Passphrase.");
-                return;
-            }
-
             logStatus("Fetching from GitHub...");
-            const url = `https://api.github.com/repos/${repo}/contents/${FILE_PATH}`;
+            const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
 
             try {
                 const response = await fetch(url, {
-                    headers: { "Authorization": `token ${token}` }
+                    headers: { "Authorization": `token ${CONFIG.token}` }
                 });
 
                 if (response.status === 404) {
@@ -108,7 +89,7 @@
                 
                 // Decode base64 file contents from GitHub
                 const encryptedContent = atob(fileData.content);
-                const decrypted = decryptData(encryptedContent, pass);
+                const decrypted = decryptData(encryptedContent, CONFIG.passphrase);
 
                 if (decrypted) {
                     localTally = decrypted;
@@ -124,9 +105,6 @@
 
         async function addAndSync() {
             const input = document.getElementById('tallyInput').value.trim();
-            const pass = document.getElementById('passphrase').value.trim();
-            const token = document.getElementById('ghToken').value.trim();
-            const repo = document.getElementById('ghRepo').value.trim();
 
             if (!input) {
                 alert("Please enter an entry like 'L 10'.");
@@ -148,12 +126,12 @@
             document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
 
             // 2. Encrypt full updated database
-            const encryptedPayload = encryptData(localTally, pass);
+            const encryptedPayload = encryptData(localTally, CONFIG.passphrase);
             const encodedContent = btoa(encryptedPayload);
 
             // 3. Commit to GitHub API
             logStatus("Syncing to GitHub...");
-            const url = `https://api.github.com/repos/${repo}/contents/${FILE_PATH}`;
+            const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
             
             const bodyData = {
                 message: `Update tally: ${new Date().toISOString()}`,
@@ -167,7 +145,7 @@
                 const res = await fetch(url, {
                     method: "PUT",
                     headers: {
-                        "Authorization": `token ${token}`,
+                        "Authorization": `token ${CONFIG.token}`,
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify(bodyData)
