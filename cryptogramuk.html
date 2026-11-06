@@ -7,44 +7,83 @@
     <!-- CryptoJS for client-side AES encryption -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; background: #f9f9f9; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .form-group { margin-bottom: 15px; }
         label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 0.9rem; }
         input, button { width: 100%; padding: 10px; box-sizing: border-box; font-size: 1rem; border: 1px solid #ccc; border-radius: 4px; }
         button { background-color: #0056b3; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
         button:hover { background-color: #004085; }
-        pre { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; }
-        .status { margin-top: 10px; font-weight: bold; }
+        .btn-green { background-color: #28a745; }
+        .btn-green:hover { background-color: #218838; }
+        .btn-dark { background-color: #333; }
+        .btn-dark:hover { background-color: #111; }
+        pre { background: #eee; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 0.95rem; }
+        .status { margin-top: 10px; font-weight: bold; font-size: 0.9rem; }
+        .hidden { display: none; }
+        h3 { margin-top: 0; }
     </style>
 </head>
 <body>
 
     <h2>Cryptogram UK</h2>
 
-    <div class="form-group">
-        <label>Add Input (Format: Name Amount, e.g. "Alice 10"):</label>
-        <input type="text" id="tallyInput" placeholder="Alice 10">
+    <!-- STEP 1: AUTHENTICATION -->
+    <div id="authSection" class="card">
+        <h3>Unlock Application</h3>
+        <div class="form-group">
+            <label>Passphrase:</label>
+            <input type="password" id="userPassphrase" placeholder="Enter passphrase">
+        </div>
+        <button onclick="unlockApp()">Unlock</button>
+        <div class="status" id="authStatus" style="color: red;"></div>
     </div>
 
-    <button onclick="addAndSync()">Add & Update GitHub</button>
-    <button onclick="fetchAndDecrypt()" style="background-color: #333;">Fetch & Decrypt</button>
+    <!-- MAIN INTERFACE (Hidden until unlocked) -->
+    <div id="appSection" class="hidden">
 
-    <div class="status" id="statusText"></div>
+        <!-- PANEL A: INPUT DATA -->
+        <div class="card">
+            <h3>1. Data Input Panel</h3>
+            <div class="form-group">
+                <label>Add Entry (Format: Name Amount):</label>
+                <input type="text" id="tallyInput" placeholder="Alice 10">
+            </div>
+            <button onclick="addLocalEntry()">Add Entry to Queue</button>
+            <button class="btn-green" onclick="saveToGitHub()">Save & Push to GitHub</button>
+            
+            <div style="margin-top: 15px;">
+                <strong>Pending Entries to Save:</strong>
+                <pre id="pendingDisplay">{}</pre>
+            </div>
+        </div>
 
-    <h3>Current Tally (Decrypted):</h3>
-    <pre id="tallyDisplay">{}</pre>
+        <!-- PANEL B: OUTPUT / REVEAL DATABASE -->
+        <div class="card">
+            <h3>2. Database Reveal Panel</h3>
+            <p style="font-size: 0.85rem; color: #666;">Fetch and decrypt the latest total tallies stored on GitHub.</p>
+            <button class="btn-dark" onclick="fetchAndReveal()">Fetch & Reveal Database</button>
+
+            <div style="margin-top: 15px;">
+                <strong>Decrypted Total Tally:</strong>
+                <pre id="databaseDisplay">Database locked or not fetched yet.</pre>
+            </div>
+        </div>
+
+        <div class="status card" id="statusText">App unlocked. System ready.</div>
+    </div>
 
     <script>
-        // --- SECURE CONFIGURATION ---
+        // CONFIGURATION: Replace 'YOUR_NEW_TOKEN_HERE' with your newly generated GitHub token
         const CONFIG = {
-            token: "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",
-            repo: "mediaolit-hue/cryptogram",
-            passphrase: "blackbird"
+            token: "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",
+            repo: "mediaolit-hue/cryptogram"
         };
 
         const FILE_PATH = "tally_data.enc";
-        let localTally = {};
-        let currentSha = ""; // Required by GitHub API for updating existing files
+        let pendingEntries = {};
+        let currentSha = "";
+        let activePassphrase = "";
 
         function logStatus(msg) {
             document.getElementById('statusText').innerText = msg;
@@ -66,82 +105,88 @@
             }
         }
 
-        // --- GITHUB API OPERATIONS ---
-        async function fetchAndDecrypt() {
-            logStatus("Fetching from GitHub...");
-            const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
-
-            try {
-                const response = await fetch(url, {
-                    headers: { "Authorization": `token ${CONFIG.token}` }
-                });
-
-                if (response.status === 404) {
-                    logStatus("File not found on GitHub. Starting new database.");
-                    localTally = {};
-                    currentSha = "";
-                    document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
-                    return;
-                }
-
-                const fileData = await response.json();
-                currentSha = fileData.sha;
-                
-                // Decode base64 file contents from GitHub
-                const encryptedContent = atob(fileData.content);
-                const decrypted = decryptData(encryptedContent, CONFIG.passphrase);
-
-                if (decrypted) {
-                    localTally = decrypted;
-                    document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
-                    logStatus("Successfully decrypted data.");
-                } else {
-                    logStatus("Failed to decrypt! Incorrect passphrase.");
-                }
-            } catch (err) {
-                logStatus("API Error: " + err.message);
+        // --- UNLOCK APP ---
+        function unlockApp() {
+            const pass = document.getElementById('userPassphrase').value.trim();
+            if (pass !== "blackbird") {
+                document.getElementById('authStatus').innerText = "Incorrect passphrase.";
+                return;
             }
+
+            activePassphrase = pass;
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('appSection').classList.remove('hidden');
         }
 
-        async function addAndSync() {
+        // --- ADD LOCAL INPUT ---
+        function addLocalEntry() {
             const input = document.getElementById('tallyInput').value.trim();
-
             if (!input) {
                 alert("Please enter an entry like 'Alice 10'.");
                 return;
             }
 
-            // Parse input: "Alice 10" -> Key: Alice, Value: 10
             const parts = input.split(/\s+/);
             const key = parts[0];
             const val = parseFloat(parts[1]);
 
             if (!key || isNaN(val)) {
-                alert("Invalid format. Use format: NAME AMOUNT (e.g. Alice 10)");
+                alert("Invalid format. Use: NAME AMOUNT (e.g. Alice 10)");
                 return;
             }
 
-            // 1. Update running local tally (accumulates if name already exists)
-            localTally[key] = (localTally[key] || 0) + val;
-            document.getElementById('tallyDisplay').innerText = JSON.stringify(localTally, null, 2);
+            pendingEntries[key] = (pendingEntries[key] || 0) + val;
+            document.getElementById('pendingDisplay').innerText = JSON.stringify(pendingEntries, null, 2);
+            document.getElementById('tallyInput').value = '';
+            logStatus(`Queued: ${key} (+${val}). Click "Save & Push to GitHub" when ready.`);
+        }
 
-            // 2. Encrypt full updated database
-            const encryptedPayload = encryptData(localTally, CONFIG.passphrase);
-            const encodedContent = btoa(encryptedPayload);
-
-            // 3. Commit to GitHub API
-            logStatus("Syncing to GitHub...");
-            const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
-            
-            const bodyData = {
-                message: `Update tally: ${new Date().toISOString()}`,
-                content: encodedContent
-            };
-            if (currentSha) {
-                bodyData.sha = currentSha;
+        // --- SAVE AND MERGE TO GITHUB ---
+        async function saveToGitHub() {
+            if (Object.keys(pendingEntries).length === 0) {
+                alert("No new entries to save.");
+                return;
             }
 
+            logStatus("Fetching latest database to merge changes...");
+            const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
+            let fullDatabase = {};
+
             try {
+                // 1. Fetch current remote file (if it exists)
+                const response = await fetch(url, {
+                    headers: { "Authorization": `token ${CONFIG.token}` }
+                });
+
+                if (response.ok) {
+                    const fileData = await response.json();
+                    currentSha = fileData.sha;
+                    const encryptedContent = atob(fileData.content);
+                    const decrypted = decryptData(encryptedContent, activePassphrase);
+                    if (decrypted) {
+                        fullDatabase = decrypted;
+                    }
+                }
+
+                // 2. Merge pending local entries into full database
+                for (let key in pendingEntries) {
+                    fullDatabase[key] = (fullDatabase[key] || 0) + pendingEntries[key];
+                }
+
+                // 3. Encrypt merged database
+                logStatus("Encrypting and uploading to GitHub...");
+                const encryptedPayload = encryptData(fullDatabase, activePassphrase);
+                const encodedContent = btoa(encryptedPayload);
+
+                const bodyData = {
+                    message: `Update tally: ${new Date().toISOString()}`,
+                    content: encodedContent
+                };
+                if (currentSha) {
+                    bodyData.sha = currentSha;
+                }
+
+                // 4. PUT request to GitHub API
                 const res = await fetch(url, {
                     method: "PUT",
                     headers: {
@@ -154,11 +199,51 @@
                 if (res.ok) {
                     const result = await res.json();
                     currentSha = result.content.sha;
-                    logStatus("Successfully saved encrypted data to GitHub!");
-                    document.getElementById('tallyInput').value = '';
+                    pendingEntries = {}; // Clear queue
+                    document.getElementById('pendingDisplay').innerText = "{}";
+                    logStatus("Successfully saved encrypted database to GitHub!");
                 } else {
                     const errRes = await res.json();
                     logStatus("Failed to save: " + errRes.message);
+                }
+            } catch (err) {
+                logStatus("Error during save: " + err.message);
+            }
+        }
+
+        // --- FETCH AND REVEAL DATABASE ---
+        async function fetchAndReveal() {
+            logStatus("Fetching encrypted database from GitHub...");
+            const url = `https://api.github.com/repos/${CONFIG.repo}/contents/${FILE_PATH}`;
+
+            try {
+                const response = await fetch(url, {
+                    headers: { "Authorization": `token ${CONFIG.token}` }
+                });
+
+                if (response.status === 404) {
+                    logStatus("No database file exists on GitHub yet.");
+                    document.getElementById('databaseDisplay').innerText = "No remote data found.";
+                    return;
+                }
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    logStatus("API Error: " + err.message);
+                    return;
+                }
+
+                const fileData = await response.json();
+                currentSha = fileData.sha;
+                
+                const encryptedContent = atob(fileData.content);
+                const decrypted = decryptData(encryptedContent, activePassphrase);
+
+                if (decrypted) {
+                    document.getElementById('databaseDisplay').innerText = JSON.stringify(decrypted, null, 2);
+                    logStatus("Successfully fetched and decrypted remote database.");
+                } else {
+                    logStatus("Failed to decrypt! Incorrect passphrase.");
                 }
             } catch (err) {
                 logStatus("Network Error: " + err.message);
